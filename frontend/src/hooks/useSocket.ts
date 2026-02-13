@@ -57,6 +57,10 @@ export const useSocket = () => {
             }
         });
 
+        socket.on("rate-limit-exceeded", ({ message }) => {
+            toast.error(message, { id: 'rate-limit' });
+        });
+
         socket.on('disconnect', () => {
             console.log('User disconnected');
         });
@@ -69,6 +73,7 @@ export const useSocket = () => {
             socket.off('cell-updated');
             socket.off('user_joined');
             socket.off('user_left');
+            socket.off('rate-limit-exceeded');
             socket.off('selection-failed');
             socket.off('disconnect');
         };

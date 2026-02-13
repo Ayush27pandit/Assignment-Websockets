@@ -49,7 +49,6 @@ io.on("connection", async (socket) => {
     await redis.hset("active_users", { [socket.id]: userId });
     socket.emit("user-id", userId);
 
-    // Send the current grid state to the newly connected user
     try {
         const gridState = await redis.hgetall('grid-state');
         if (gridState) {
@@ -61,7 +60,7 @@ io.on("connection", async (socket) => {
 
 
 
-    // Broadcast updated user list to everyone
+    // Broadcast updated user list 
     const users = await redis.hgetall("active_users");
     io.emit("users-list", users || {});
 
@@ -73,6 +72,19 @@ io.on("connection", async (socket) => {
     socket.on('cell-clicked', async ({ index }) => {
         try {
             const indexStr = String(index);
+            const rateLimitKey = `rate_limit:${socket.userId}`;
+
+            // Check rate limit
+            const isRateLimited = await redis.get(rateLimitKey);
+            if (isRateLimited) {
+                socket.emit('rate-limit-exceeded', {
+                    message: "Whoa there! Slow down a bit. 🐢"
+                });
+                return;
+            }
+
+            // Set rate limit for 1 second
+            await redis.set(rateLimitKey, "true", { ex: 1 });
 
             // ATOMIC OPERATION using Lua Script
             // Logic: 
@@ -100,10 +112,10 @@ io.on("connection", async (socket) => {
             } else if (result === 'DEL') {
                 io.emit('cell-updated', { index, owner: null });
             } else {
-                // Someone else beat us to it (Race Condition handled!)
+
                 socket.emit('selection-failed', {
                     index,
-                    owner: result, // Include actual owner
+                    owner: result,
                     message: `Cell ${Number(index) + 1} is already owned by User #${result}`
                 });
             }
@@ -116,7 +128,6 @@ io.on("connection", async (socket) => {
         console.log("user disconnected", socket.id);
         await redis.hdel("active_users", socket.id);
 
-        // Broadcast updated list
         const users = await redis.hgetall("active_users");
         io.emit("users-list", users || {});
 
