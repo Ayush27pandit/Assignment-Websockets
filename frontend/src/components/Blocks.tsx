@@ -1,11 +1,13 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
+import { getColorForUser } from '../utils/colors';
 
 interface BlocksProps {
     socket: Socket;
+    myId: string | null;
 }
 
-const Blocks = ({ socket }: BlocksProps) => {
+const Blocks = ({ socket, myId }: BlocksProps) => {
     const [gridState, setGridState] = useState<{ [key: number]: string | null }>({});
     const blocksArray = useMemo(() => Array.from({ length: 300 }), []);
 
@@ -23,32 +25,49 @@ const Blocks = ({ socket }: BlocksProps) => {
             }));
         });
 
+        // Rollback on failure
+        socket.on('selection-failed', ({ index, owner }) => {
+            // Restore the actual owner from the server
+            setGridState(prev => ({
+                ...prev,
+                [index]: owner
+            }));
+        });
+
         return () => {
             socket.off('initial-state');
             socket.off('cell-updated');
+            socket.off('selection-failed');
         };
     }, [socket]);
 
     const handleCellClick = (index: number) => {
-        socket.emit('cell-clicked', { index });
-    };
+        if (!myId) return;
 
-    // Simple helper to generate a color from a user ID string
-    const getColorForUser = (userId: string | number | null) => {
-        if (!userId) return 'transparent';
-        const colors = [
-            '#3b82f6', '#ef4444', '#10b981', '#f59e0b',
-            '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'
-        ];
-        const hash = String(userId).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        return colors[hash % colors.length];
+        const currentOwner = gridState ? gridState[index] : null;
+
+        // If someone else owns the cell, don't touch local state at all.
+        // Just let the server respond with selection-failed.
+        if (currentOwner && String(currentOwner) !== String(myId)) {
+            socket.emit('cell-clicked', { index });
+            return;
+        }
+
+        // Only optimistically update cells we own (toggle off) or empty cells (toggle on)
+        setGridState(prev => ({
+            ...prev,
+            [index]: currentOwner ? null : myId
+        }));
+
+        // Send to server
+        socket.emit('cell-clicked', { index });
     };
 
     return (
         <div className="w-full max-w-7xl px-4 py-10 mx-auto">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-3 sm:gap-4 justify-items-center">
                 {blocksArray.map((_, index) => {
-                    const owner = gridState[index];
+                    const owner = gridState ? gridState[index] : null;
                     const isSelected = !!owner;
                     const selectionColor = getColorForUser(owner);
 

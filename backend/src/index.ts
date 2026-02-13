@@ -61,39 +61,68 @@ io.on("connection", async (socket) => {
 
 
 
+    // Broadcast updated user list to everyone
+    const users = await redis.hgetall("active_users");
+    io.emit("users-list", users || {});
+
     socket.broadcast.emit("user_joined", {
-        id: userId
-
-
+        id: userId,
+        socketId: socket.id
     })
 
     socket.on('cell-clicked', async ({ index }) => {
         try {
-            // Get current owner of this cell
-            const currentOwner = await redis.hget('grid-state', String(index));
+            const indexStr = String(index);
 
-            let newOwner = null;
-            if (currentOwner === socket.userId) {
-                // Toggle off if already owned by this user
-                await redis.hdel('grid-state', String(index));
+            // ATOMIC OPERATION using Lua Script
+            // Logic: 
+            // 1. Get current owner
+            // 2. If current owner is me -> Delete (toggle off)
+            // 3. If current owner is null -> Set to me (toggle on)
+            // 4. If current owner is someone else -> Return owner to signal failure
+            const luaScript = `
+                local current = redis.call('HGET', KEYS[1], ARGV[1])
+                if not current then
+                    redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+                    return 'SET'
+                elseif current == ARGV[2] then
+                    redis.call('HDEL', KEYS[1], ARGV[1])
+                    return 'DEL'
+                else
+                    return current
+                end
+            `;
+
+            const result = await redis.eval(luaScript, ['grid-state'], [indexStr, socket.userId]);
+
+            if (result === 'SET') {
+                io.emit('cell-updated', { index, owner: socket.userId });
+            } else if (result === 'DEL') {
+                io.emit('cell-updated', { index, owner: null });
             } else {
-                // Toggle on cant overwrite other owner
-                newOwner = socket.userId;
-                await redis.hset('grid-state', { [String(index)]: newOwner });
+                // Someone else beat us to it (Race Condition handled!)
+                socket.emit('selection-failed', {
+                    index,
+                    owner: result, // Include actual owner
+                    message: `Cell ${Number(index) + 1} is already owned by User #${result}`
+                });
             }
-
-            // Broadcast to EVERYONE (including sender to confirm)
-            io.emit('cell-updated', { index, owner: newOwner });
         } catch (error) {
-            console.error("Error updating cell-clicked in Redis:", error);
+            console.error("Error updating cell-clicked with Lua in Redis:", error);
         }
     });
 
     socket.on("disconnect", async () => {
         console.log("user disconnected", socket.id);
         await redis.hdel("active_users", socket.id);
+
+        // Broadcast updated list
+        const users = await redis.hgetall("active_users");
+        io.emit("users-list", users || {});
+
         socket.broadcast.emit("user_left", {
-            id: socket.userId
+            id: socket.userId,
+            socketId: socket.id
         });
     });
 });
