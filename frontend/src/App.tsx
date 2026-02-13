@@ -7,12 +7,20 @@ import Sidebar from './components/Sidebar'
 import { useSocket } from './hooks/useSocket'
 
 function App() {
-  const { socket, myId, uniqueUsers, leaderboard } = useSocket()
+  const { socket, myId, uniqueUsers, leaderboard, isConnected } = useSocket()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Header onMenuClick={() => setIsSidebarOpen(true)} />
+
+      {!isConnected && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-4 text-center">
+          <p className="text-xs font-medium text-amber-600 animate-pulse">
+            🚀 Server is waking up (Render free tier). This might take ~30 seconds. Please wait...
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden relative">
         <Sidebar

@@ -12,9 +12,11 @@ export const useSocket = () => {
     const [activeUsers, setActiveUsers] = useState<{ [socketId: string]: string }>({});
     const [myId, setMyId] = useState<string | null>(localStorage.getItem('inboxkit-user-id'));
     const [gridState, setGridState] = useState<{ [key: string]: string | null }>({});
+    const [isConnected, setIsConnected] = useState(socket.connected);
 
     useEffect(() => {
         socket.on('connect', () => {
+            setIsConnected(true);
             console.log('Connected to server with ID:', socket.id);
         });
 
@@ -62,6 +64,7 @@ export const useSocket = () => {
         });
 
         socket.on('disconnect', () => {
+            setIsConnected(false);
             console.log('User disconnected');
         });
 
@@ -104,6 +107,7 @@ export const useSocket = () => {
         myId,
         uniqueUsers,
         leaderboard,
-        gridState
+        gridState,
+        isConnected
     };
 };
